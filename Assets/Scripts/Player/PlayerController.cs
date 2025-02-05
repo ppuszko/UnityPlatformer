@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -12,9 +13,16 @@ public class PlayerController : MonoBehaviour
     public float gravityFactor = 10f;
     public float moveSpeed = 5f;
     public float slidingSpeed = 3;
+    public float bufferTimeLimit = 0;
 
-    private enum WalkDirection {Right = 1, Left = -1};
+    private enum WalkDirection { Right = 1, Left = -1 };
     private WalkDirection walkDirection = WalkDirection.Right;
+    private float timeLimit = 0.2f;
+    private float timeElapsed;
+    private float valueToKeep;
+    private float bufferTime = 0;
+    private float bufferMoveInput;
+
 
     private bool _isRunning = false;
     public bool IsRunning
@@ -33,22 +41,37 @@ public class PlayerController : MonoBehaviour
         animator = GetComponent<Animator>();
         rb.gravityScale = gravityFactor;
         terrainInteractions = GetComponent<TerrainInteraction>();
+        timeElapsed = timeLimit;
     }
 
     private void FixedUpdate()
     {
+        manageWallMovement();
         rb.linearVelocity = new Vector2(moveInput.x * moveSpeed, rb.linearVelocityY);
-        if (terrainInteractions.IsOnWall && terrainInteractions.CanJump)
+
+    }
+
+    private void manageWallMovement()
+    {
+        if (bufferTime > 0)
         {
-            rb.linearVelocity = new Vector2(0, -slidingSpeed);
+            bufferTime -= Time.fixedDeltaTime;
+            if (!terrainInteractions.IsOnWall)
+            {
+                moveInput.x = bufferMoveInput;
+            }
+        }
+        if (terrainInteractions.IsOnWall)
+        {
+            rb.linearVelocityY = -slidingSpeed;
         }
     }
 
     public void OnMove(InputAction.CallbackContext context)
     {
+        moveInput = context.ReadValue<Vector2>();
         if (!terrainInteractions.IsOnWall)
         {
-            moveInput = context.ReadValue<Vector2>();
             IsRunning = moveInput.x != 0;
             if (moveInput.x != 0 && moveInput.x != (float)walkDirection)
             {
@@ -58,11 +81,22 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
-            //rb.linearVelocity = new Vector2(0, -slidingSpeed);
-            moveInput = Vector2.zero;
+            if( moveInput.x == -(float)walkDirection)
+            {
+                terrainInteractions.IsOnWall = false;
+            }
+            else if(moveInput.x != 0)
+            {
+                bufferTime = bufferTimeLimit;
+                bufferMoveInput = moveInput.x;
+            }
+            else
+            {
+                moveInput.x = 0;
+            }
             IsRunning = false;
         }
-        
+
     }
 
     public void OnJump(InputAction.CallbackContext context)
@@ -72,16 +106,28 @@ public class PlayerController : MonoBehaviour
             if (terrainInteractions.IsOnWall)
             {
                 terrainInteractions.IsOnWall = false;
-                moveInput = new Vector2(moveSpeed * -transform.localScale.x, jumpStrength);
-                Debug.Log("dupa");
-            
+                moveInput.x = transform.localScale.x > 0 ? -1 : 1;
+                StartCoroutine(JumpCoroutine(timeLimit, valueToKeep));
             }
-            else
-            {
-                rb.linearVelocity = new Vector2(rb.linearVelocityX, jumpStrength);
-            }
+            rb.linearVelocityY = jumpStrength;
             terrainInteractions.CanJump = false;
         }
-        
+
+    }
+
+    private IEnumerator JumpCoroutine(float timeLimit, float value)
+    {
+        float elapsed = 0f;
+
+        while (elapsed < timeLimit)
+        {
+           
+            rb.linearVelocityY = jumpStrength/2;
+            elapsed += Time.fixedDeltaTime;
+            if (terrainInteractions.IsGrounded || terrainInteractions.IsOnWall)
+                StopCoroutine("JumpCoroutine");
+            yield return new WaitForFixedUpdate();
+        }
+        moveInput.x = 0;
     }
 }
